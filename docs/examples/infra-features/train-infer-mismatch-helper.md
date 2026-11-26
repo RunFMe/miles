@@ -139,6 +139,19 @@ The hook registers these command-line arguments from `MisConfig`:
 - `rs_level`: Allowed levels: **token**, **sequence**, **geometric**. See explanations below.
 - `rs_veto_threshold`: Sequence-level rejection threshold for catastrophic mismatches
 
+`use_rs` also works without `use_tis`: tokens and sequences are masked and the loss is not reweighted.
+This is the correction for `--use-rollout-logprobs` (Algorithm 3), where `--use-tis` is refused because the PPO
+ratio is already $\pi_\theta / \pi_{\text{SGLang}}$ and an IS weight would multiply it in a second time.
+Switch the hook on with `--get-mismatch-metrics` instead, and add `--skip-actor-forward-only` so the
+mask reads the training forward's own log probs instead of a second forward pass. For example, prime-rl's
+masking (keep tokens with a ratio in [0.5, 5], drop a sequence with any token below 1e-5):
+
+```bash
+--use-rollout-logprobs --skip-actor-forward-only --get-mismatch-metrics
+--custom-tis-function-path examples.infra_features.train_infer_mismatch_helper.mis.compute_mis_weights_with_cp
+--use-rs --rs-level token --rs-lower-bound 0.5 --rs-upper-bound 5 --rs-veto-threshold 1e-5
+```
+
 ### Importance Sampling
 
 For both IS and RS, we provided 3 levels: **token**, **sequence**, **geometric**.

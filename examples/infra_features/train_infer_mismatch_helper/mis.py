@@ -181,8 +181,13 @@ def compute_mis_weights(
 
     Returns:
         weights: List of importance sampling weights (safety-bounded; zeroed at padding only). 1D tensor each.
+            None without `use_tis`: nothing is multiplied into the loss.
         modified_response_masks: List of rejection masks to apply in aggregation (mask mode + veto). 1D tensor each.
         metrics: The metrics for the importance sampling weights, a dict of list[torch.Tensor]. 1D tensor each.
+
+    `use_rs` without `use_tis` masks without reweighting. That is the correction to pair with
+    `--use-rollout-logprobs`, whose PPO ratio is already `exp(train - rollout)`: an IS weight on top of
+    it would count the ratio twice.
     """
 
     metrics: dict[str, list[torch.Tensor]] = {}
@@ -220,8 +225,8 @@ def compute_mis_weights(
     ):
         add_ppl_metrics(train_log_prob, rollout_log_prob, loss_mask, metrics)
 
-    # only calculate mismatch metrics if TIS is not used
-    if not args.use_tis:
+    # only calculate mismatch metrics if neither TIS nor RS is used
+    if not args.use_tis and not args.use_rs:
         return None, loss_masks, metrics
 
     # handle each sequence independently
@@ -278,12 +283,17 @@ def compute_mis_weights(
                 )
                 modified_mask = modified_mask * veto_mask
 
-        metrics_append(metrics, "is_ratio_mean_after_tis_rs", weights)
+        if args.use_tis:
+            metrics_append(metrics, "is_ratio_mean_after_tis_rs", weights)
 
         weights = weights.detach()
         modified_mask = modified_mask.detach()
         all_weights.append(weights)
         all_modified_masks.append(modified_mask)
+
+    # RS alone: the masks are the whole correction, and pg_loss is left as it is.
+    if not args.use_tis:
+        return None, all_modified_masks, metrics
 
     # Apply batch normalization if enabled (normalize to mean=1.0 across entire batch)
     if args.tis_batch_normalize:
